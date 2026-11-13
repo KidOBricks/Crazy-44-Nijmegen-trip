@@ -87,6 +87,8 @@ export function createDefaultGameState(adminToken?: string): GameState {
     endsAt: null,
     endedAt: null,
     ntfyTopic: '',
+    cloudinaryCloudName: '',
+    cloudinaryUploadPreset: '',
     rulesText: DEFAULT_RULES_TEXT,
     updatedAt: Date.now(),
   };

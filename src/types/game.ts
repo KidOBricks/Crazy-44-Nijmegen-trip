@@ -20,6 +20,8 @@ export interface GameState {
   endsAt: number | null;
   endedAt: number | null;
   ntfyTopic: string;
+  cloudinaryCloudName?: string;
+  cloudinaryUploadPreset?: string;
   rulesText: string;
   updatedAt: number;
 }

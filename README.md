@@ -43,18 +43,10 @@ service cloud.firestore {
 }
 ```
 
-4. Enable **Firebase Storage** (in **Build → Storage** — note: newer Firebase projects require the Blaze pay-as-you-go plan, which still includes 5 GB storage & 1 GB/day download free) and paste these rules:
-
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if true;
-    }
-  }
-}
-```
+4. **Photo & Video Uploads (100% Free, No Billing Card Needed)**:
+   - **Photos** already work out-of-the-box for free on Firebase Spark (compressed and stored in Firestore).
+   - For **Video uploads** without upgrading Firebase to Blaze, create a free [Cloudinary](https://cloudinary.com/) account (no card required) → **Settings → Upload → Add upload preset** (Signing Mode: **Unsigned**) → enter your **Cloud Name** and **Upload Preset** in **Admin → Settings**.
+   - *(Optional)* If you already have Firebase Blaze enabled, you can instead enable Firebase Storage and paste `storage.rules`.
 
 5. Open the deployed site, paste your `firebaseConfig` snippet on the home screen (or hardcode it in `src/firebaseConfig.ts` and push), and bookmark your generated `#/admin?token=...` URL!
 

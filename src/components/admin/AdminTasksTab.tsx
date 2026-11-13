@@ -11,6 +11,7 @@ import { useState } from 'react';
 import type { GameRepository } from '../../services/gameRepository';
 import { generateToken } from '../../services/gameRepository';
 import { uploadMediaFile } from '../../services/mediaUpload';
+import type { CloudinaryConfig } from '../../services/mediaUpload';
 import type { Category, Task } from '../../types/game';
 
 interface AdminTasksTabProps {
@@ -18,6 +19,7 @@ interface AdminTasksTabProps {
   categories: Category[];
   tasks: Task[];
   useDemoMode: boolean;
+  cloudinary?: CloudinaryConfig;
 }
 
 export function AdminTasksTab({
@@ -25,6 +27,7 @@ export function AdminTasksTab({
   categories,
   tasks,
   useDemoMode,
+  cloudinary,
 }: AdminTasksTabProps) {
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
@@ -89,6 +92,7 @@ export function AdminTasksTab({
         useDemoMode,
         setUploadPct,
         editingTask.imagePath,
+        cloudinary,
       );
       if (res.mediaType !== 'image') {
         throw new Error('Task reference image must be a photo.');

@@ -45,6 +45,8 @@ export function AdminPage() {
       : 'unsupported',
   );
   const [ntfyInput, setNtfyInput] = useState('');
+  const [cloudNameInput, setCloudNameInput] = useState('');
+  const [uploadPresetInput, setUploadPresetInput] = useState('');
   const [rulesInput, setRulesInput] = useState('');
   const [copiedAdmin, setCopiedAdmin] = useState(false);
 
@@ -303,6 +305,10 @@ export function AdminPage() {
             categories={categories}
             tasks={tasks}
             useDemoMode={mode === 'demo'}
+            cloudinary={{
+              cloudName: game.cloudinaryCloudName,
+              uploadPreset: game.cloudinaryUploadPreset,
+            }}
           />
         )}
 
@@ -408,6 +414,40 @@ export function AdminPage() {
                 even when your browser is closed.
               </span>
             </label>
+
+            <div className="card-tinted stack-sm">
+              <strong style={{ fontSize: '13px' }}>
+                Free Video & HD Photo Uploads via Cloudinary (No Card Required)
+              </strong>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                Photos already work free out-of-the-box without Firebase Blaze.
+                To also enable <strong>video uploads</strong> free, create a
+                free Cloudinary account → Settings → Upload → Add Unsigned
+                Upload Preset, then enter:
+              </span>
+              <div className="grid-2">
+                <label className="field">
+                  <span className="field-label">Cloud Name</span>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="e.g., dxyz123abc"
+                    value={cloudNameInput}
+                    onChange={(e) => setCloudNameInput(e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field-label">Unsigned Upload Preset</span>
+                  <input
+                    type="text"
+                    className="input"
+                    placeholder="e.g., crazy44_unsigned"
+                    value={uploadPresetInput}
+                    onChange={(e) => setUploadPresetInput(e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
 
             <label className="field">
               <span className="field-label">Rules & Scoring Text</span>

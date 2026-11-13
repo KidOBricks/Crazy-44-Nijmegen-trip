@@ -48,6 +48,10 @@ export function TaskDetailModal({
         useDemoMode,
         setUploadPct,
         submission?.mediaPath,
+        {
+          cloudName: game.cloudinaryCloudName,
+          uploadPreset: game.cloudinaryUploadPreset,
+        },
       );
 
       const now = Date.now();
