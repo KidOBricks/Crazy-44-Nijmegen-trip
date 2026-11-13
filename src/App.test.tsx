@@ -1,10 +1,12 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from './App';
+import { setAppMode } from './services/firebase';
 
 describe('Crazy 44 App Routes', () => {
   beforeEach(() => {
     localStorage.clear();
+    setAppMode('demo');
     window.location.hash = '#/';
   });
 
