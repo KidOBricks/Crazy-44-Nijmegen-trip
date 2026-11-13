@@ -8,12 +8,21 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const useShell = process.platform === 'win32';
+const isWin = process.platform === 'win32';
+
+function formatArg(arg) {
+  if (!isWin) return arg;
+  if (/[\s"&|<>^()]/.test(arg)) {
+    return `"${arg.replace(/"/g, '\\"')}"`;
+  }
+  return arg;
+}
 
 function run(cmd, args, { capture = false, allowFail = false } = {}) {
-  const res = spawnSync(cmd, args, {
+  const finalArgs = isWin ? args.map(formatArg) : args;
+  const res = spawnSync(cmd, finalArgs, {
     cwd: repoRoot,
-    shell: useShell,
+    shell: isWin,
     encoding: 'utf8',
     stdio: capture ? ['inherit', 'pipe', 'pipe'] : 'inherit',
   });
@@ -29,6 +38,10 @@ function run(cmd, args, { capture = false, allowFail = false } = {}) {
 
 function fb(args, opts = {}) {
   return run('npx', ['-y', 'firebase-tools', ...args], opts);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function randomHex(len = 4) {
@@ -71,26 +84,58 @@ async function main() {
   const defaultId = `crazy-44-nijmegen-${randomHex(4)}`;
   const projectInput = (
     await rl.question(
-      `\n2) Enter a new Firebase Project ID (press Enter for "${defaultId}"): `,
+      `\n2) Enter a new or existing Firebase Project ID (press Enter for "${defaultId}"): `,
     )
   ).trim();
   const projectId = projectInput || defaultId;
 
-  console.log(`\nCreating Firebase project "${projectId}"...`);
-  const createRes = fb(
-    ['projects:create', projectId, '--display-name', 'Crazy 44'],
-    { allowFail: true },
-  );
-  if (createRes.status !== 0) {
-    console.log(
-      '   (If that project already exists under your account, continuing with it...)',
+  // Check if project already exists in user's account
+  const listProjects = fb(['projects:list', '--json'], {
+    capture: true,
+    allowFail: true,
+  });
+  let projectExists = false;
+  if (listProjects.status === 0) {
+    try {
+      const parsed = JSON.parse(listProjects.stdout);
+      projectExists = (parsed?.result || []).some(
+        (p) => p.projectId === projectId,
+      );
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!projectExists) {
+    console.log(`\nCreating Firebase project "${projectId}"...`);
+    const createRes = fb(
+      ['projects:create', projectId, '--display-name', 'Crazy 44'],
+      { capture: true, allowFail: true },
     );
+
+    if (createRes.status !== 0) {
+      const msg = (createRes.stderr || createRes.stdout || '').trim();
+      console.error('\nCould not create Firebase project automatically:');
+      if (msg) console.error(msg);
+      console.log('\n------------------------------------------------------------');
+      console.log('If this is your first Firebase project, accept the Terms of Service');
+      console.log('or create the project once in your browser:');
+      console.log('  https://console.firebase.google.com/');
+      console.log(`Create a project with ID "${projectId}", then press Enter here.`);
+      console.log('------------------------------------------------------------');
+      await rl.question('Press Enter once the project exists in Firebase Console: ');
+    } else {
+      console.log('   Project created! Waiting 3 seconds for propagation...');
+      await sleep(3000);
+    }
+  } else {
+    console.log(`\n   Using existing Firebase project "${projectId}".`);
   }
 
   // 3. Create Web App & fetch SDK config
   console.log('\n3) Creating Firebase Web App & fetching config...');
   const appRes = fb(
-    ['apps:create', 'WEB', 'Crazy 44 Web', '--project', projectId, '--json'],
+    ['apps:create', 'WEB', 'Crazy-44-Web', '--project', projectId, '--json'],
     { capture: true, allowFail: true },
   );
 
@@ -105,6 +150,7 @@ async function main() {
   }
 
   if (!appId) {
+    await sleep(1500);
     const listRes = fb(['apps:list', 'WEB', '--project', projectId, '--json'], {
       capture: true,
     });
@@ -113,7 +159,7 @@ async function main() {
   }
 
   if (!appId) {
-    throw new Error('Could not determine Web App ID from Firebase CLI.');
+    throw new Error('Could not find or create a Web App in Firebase project.');
   }
 
   const sdkRes = fb(
