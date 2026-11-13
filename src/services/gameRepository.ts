@@ -57,6 +57,7 @@ export interface GameRepository {
       'status' | 'basePoints' | 'bonusPoints' | 'awardedPoints' | 'adminNote' | 'gradedAt'
     >,
   ): Promise<void>;
+  restartGame(): Promise<void>;
   resetAllData(keepAdminToken?: string): Promise<void>;
 }
 
@@ -267,6 +268,40 @@ export function createFirebaseRepository(): GameRepository {
 
     async gradeSubmission(submissionId, patch) {
       await updateDoc(doc(db, 'submissions', submissionId), patch);
+    },
+
+    async restartGame() {
+      const [teamsSnap, subsSnap] = await Promise.all([
+        getDocs(collection(db, 'teams')),
+        getDocs(collection(db, 'submissions')),
+      ]);
+
+      const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+      subsSnap.forEach((d) => {
+        ops.push((batch) => batch.delete(d.ref));
+      });
+      teamsSnap.forEach((d) => {
+        ops.push((batch) =>
+          batch.update(d.ref, { penaltyPoints: 0, adjustments: [] }),
+        );
+      });
+      ops.push((batch) =>
+        batch.update(gameDocRef, {
+          status: 'setup',
+          startedAt: null,
+          endsAt: null,
+          endedAt: null,
+          updatedAt: Date.now(),
+        }),
+      );
+
+      for (let i = 0; i < ops.length; i += 400) {
+        const batch = writeBatch(db);
+        for (const op of ops.slice(i, i + 400)) {
+          op(batch);
+        }
+        await batch.commit();
+      }
     },
 
     async resetAllData(keepAdminToken?: string) {
@@ -506,6 +541,28 @@ export function createDemoRepository(): GameRepository {
         s.id === submissionId ? { ...s, ...patch } : s,
       );
       writeAndBroadcast({ ...snap, submissions });
+    },
+
+    async restartGame() {
+      const snap = readDemoSnapshot();
+      const teams = snap.teams.map((t) => ({
+        ...t,
+        penaltyPoints: 0,
+        adjustments: [],
+      }));
+      writeAndBroadcast({
+        ...snap,
+        teams,
+        submissions: [],
+        game: {
+          ...snap.game,
+          status: 'setup',
+          startedAt: null,
+          endsAt: null,
+          endedAt: null,
+          updatedAt: Date.now(),
+        },
+      });
     },
 
     async resetAllData(keepAdminToken?: string) {

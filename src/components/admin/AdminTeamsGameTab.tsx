@@ -1,10 +1,12 @@
 import {
   Check,
+  Clock,
   Copy,
   Flag,
   Play,
   Plus,
   QrCode,
+  RefreshCw,
   RotateCcw,
   Trash2,
 } from 'lucide-react';
@@ -43,6 +45,15 @@ const TEAM_COLOR_PRESETS = [
   '#EA580C', // Orange
 ];
 
+const DURATION_PRESETS = [
+  { label: '30m', minutes: 30 },
+  { label: '1h', minutes: 60 },
+  { label: '90m', minutes: 90 },
+  { label: '2h', minutes: 120 },
+  { label: '2h 30m', minutes: 150 },
+  { label: '3h', minutes: 180 },
+];
+
 export function AdminTeamsGameTab({
   repo,
   game,
@@ -72,6 +83,14 @@ export function AdminTeamsGameTab({
   } | null>(null);
   const [showPreviewAnalytics, setShowPreviewAnalytics] = useState(false);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [restarting, setRestarting] = useState(false);
+
+  const [durationInput, setDurationInput] = useState<string>(
+    String(game.durationMinutes || 150),
+  );
+  const [endTimeInput, setEndTimeInput] = useState<string>('18:30');
+  const [timeSavedMsg, setTimeSavedMsg] = useState<string>('');
 
   const handleCreateTeam = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,9 +122,11 @@ export function AdminTeamsGameTab({
 
   const handleStartGame = async () => {
     const now = Date.now();
-    const durationMs = (game.durationMinutes || 150) * 60 * 1000;
+    const mins = Math.max(1, Number(durationInput) || game.durationMinutes || 150);
+    const durationMs = mins * 60 * 1000;
     await repo.updateGame({
       status: 'active',
+      durationMinutes: mins,
       startedAt: now,
       endsAt: now + durationMs,
       endedAt: null,
@@ -131,6 +152,56 @@ export function AdminTeamsGameTab({
       endsAt: now + remainingMs,
       endedAt: null,
     });
+  };
+
+  const handleRestartGame = async () => {
+    setRestarting(true);
+    try {
+      await repo.restartGame();
+      setConfirmRestart(false);
+      setConfirmEnd(false);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
+  const applyDurationMinutes = async (minsRaw: number) => {
+    const mins = Math.min(720, Math.max(1, Math.round(minsRaw)));
+    setDurationInput(String(mins));
+    const patch: Partial<GameState> = { durationMinutes: mins };
+    if (game.status === 'active') {
+      patch.endsAt = Date.now() + mins * 60 * 1000;
+    }
+    await repo.updateGame(patch);
+    setTimeSavedMsg(`Time limit set to ${mins} min`);
+    window.setTimeout(() => setTimeSavedMsg(''), 2200);
+  };
+
+  const applyEndClockTime = async () => {
+    const [hhStr, mmStr] = endTimeInput.split(':');
+    const hh = Number(hhStr);
+    const mm = Number(mmStr);
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return;
+
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(hh, mm, 0, 0);
+    if (target.getTime() <= now.getTime()) {
+      target.setDate(target.getDate() + 1);
+    }
+    const mins = Math.max(
+      1,
+      Math.round((target.getTime() - now.getTime()) / 60000),
+    );
+    setDurationInput(String(mins));
+
+    const patch: Partial<GameState> = { durationMinutes: mins };
+    if (game.status === 'active') {
+      patch.endsAt = target.getTime();
+    }
+    await repo.updateGame(patch);
+    setTimeSavedMsg(`Deadline set to ${endTimeInput} (${mins} min)`);
+    window.setTimeout(() => setTimeSavedMsg(''), 2500);
   };
 
   const handleCopyUrl = async (team: Team) => {
@@ -181,7 +252,10 @@ export function AdminTeamsGameTab({
               <button
                 type="button"
                 className="btn btn-danger"
-                onClick={() => setConfirmEnd(true)}
+                onClick={() => {
+                  setConfirmRestart(false);
+                  setConfirmEnd(true);
+                }}
               >
                 <Flag size={16} />
                 End Game
@@ -217,30 +291,136 @@ export function AdminTeamsGameTab({
                 Resume Game
               </button>
             )}
+
+            {game.status !== 'setup' && !confirmRestart && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => {
+                  setConfirmEnd(false);
+                  setConfirmRestart(true);
+                }}
+              >
+                <RefreshCw size={16} />
+                Restart Game
+              </button>
+            )}
+
+            {game.status !== 'setup' && confirmRestart && (
+              <div className="row-wrap">
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  disabled={restarting}
+                  onClick={handleRestartGame}
+                >
+                  {restarting
+                    ? 'Restarting...'
+                    : 'Confirm Restart (Clears Submissions)'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={restarting}
+                  onClick={() => setConfirmRestart(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Time Limit Controls */}
+        <div
+          className="card-tinted stack-sm"
+          style={{ padding: '12px 14px' }}
+        >
+          <div className="row-between">
+            <div className="row-wrap" style={{ fontSize: '13px' }}>
+              <Clock size={15} color="#4B1D8C" />
+              <strong>Time Limit: {game.durationMinutes} min</strong>
+              {game.endsAt && game.status === 'active' && (
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  (Ends at{' '}
+                  {new Date(game.endsAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                  )
+                </span>
+              )}
+            </div>
+            {timeSavedMsg && (
+              <span className="badge badge-approved">{timeSavedMsg}</span>
+            )}
+          </div>
+
+          <div className="chip-row" style={{ marginBottom: 0 }}>
+            {DURATION_PRESETS.map((preset) => (
+              <button
+                key={preset.minutes}
+                type="button"
+                className={`chip ${
+                  game.durationMinutes === preset.minutes ? 'active' : ''
+                }`}
+                onClick={() => applyDurationMinutes(preset.minutes)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="row-between" style={{ gap: '10px' }}>
+            <div className="row-wrap">
+              <input
+                type="number"
+                min={1}
+                max={720}
+                aria-label="Time limit in minutes"
+                className="input"
+                style={{ width: '92px', minHeight: '38px' }}
+                value={durationInput}
+                onChange={(e) => setDurationInput(e.target.value)}
+              />
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                minutes
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-secondary"
+                onClick={() =>
+                  applyDurationMinutes(Number(durationInput) || 150)
+                }
+              >
+                Set Limit
+              </button>
+            </div>
+
+            <div className="row-wrap">
+              <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                Or end at:
+              </span>
+              <input
+                type="time"
+                aria-label="End clock time"
+                className="input"
+                style={{ width: '126px', minHeight: '38px' }}
+                value={endTimeInput}
+                onChange={(e) => setEndTimeInput(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={applyEndClockTime}
+              >
+                Set End Time
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="row-between">
-          <label className="row-wrap" style={{ fontSize: '13px' }}>
-            <span style={{ fontWeight: 600 }}>Timer duration (minutes):</span>
-            <input
-              type="number"
-              min={15}
-              max={720}
-              className="input"
-              style={{ width: '96px', minHeight: '36px' }}
-              value={game.durationMinutes}
-              onChange={(e) => {
-                const mins = Math.max(15, Number(e.target.value) || 150);
-                const patch: Partial<GameState> = { durationMinutes: mins };
-                if (game.status === 'active' && game.startedAt) {
-                  patch.endsAt = game.startedAt + mins * 60 * 1000;
-                }
-                repo.updateGame(patch);
-              }}
-            />
-          </label>
-
           {game.status !== 'ended' && (
             <button
               type="button"
