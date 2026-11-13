@@ -81,30 +81,32 @@ async function main() {
   }
 
   // 2. Choose / create Firebase project
-  const defaultId = `crazy-44-nijmegen-${randomHex(4)}`;
+  const listProjects = fb(['projects:list', '--json'], {
+    capture: true,
+    allowFail: true,
+  });
+  let existingProjects = [];
+  if (listProjects.status === 0) {
+    try {
+      const parsed = JSON.parse(listProjects.stdout);
+      existingProjects = (parsed?.result || []).map((p) => p.projectId);
+    } catch {
+      // ignore
+    }
+  }
+
+  const existingCrazy = existingProjects.find((id) =>
+    id.startsWith('crazy-44'),
+  );
+  const defaultId = existingCrazy || `crazy-44-nijmegen-${randomHex(4)}`;
+
   const projectInput = (
     await rl.question(
       `\n2) Enter a new or existing Firebase Project ID (press Enter for "${defaultId}"): `,
     )
   ).trim();
   const projectId = projectInput || defaultId;
-
-  // Check if project already exists in user's account
-  const listProjects = fb(['projects:list', '--json'], {
-    capture: true,
-    allowFail: true,
-  });
-  let projectExists = false;
-  if (listProjects.status === 0) {
-    try {
-      const parsed = JSON.parse(listProjects.stdout);
-      projectExists = (parsed?.result || []).some(
-        (p) => p.projectId === projectId,
-      );
-    } catch {
-      // ignore
-    }
-  }
+  const projectExists = existingProjects.includes(projectId);
 
   if (!projectExists) {
     console.log(`\nCreating Firebase project "${projectId}"...`);
@@ -118,43 +120,56 @@ async function main() {
       console.error('\nCould not create Firebase project automatically:');
       if (msg) console.error(msg);
       console.log('\n------------------------------------------------------------');
-      console.log('If this is your first Firebase project, accept the Terms of Service');
-      console.log('or create the project once in your browser:');
+      console.log('Create the project in your browser:');
       console.log('  https://console.firebase.google.com/');
-      console.log(`Create a project with ID "${projectId}", then press Enter here.`);
+      console.log(`Use Project ID "${projectId}", then press Enter here.`);
       console.log('------------------------------------------------------------');
       await rl.question('Press Enter once the project exists in Firebase Console: ');
     } else {
-      console.log('   Project created! Waiting 3 seconds for propagation...');
-      await sleep(3000);
+      console.log('   Project created! Waiting 5 seconds for IAM propagation...');
+      await sleep(5000);
     }
   } else {
     console.log(`\n   Using existing Firebase project "${projectId}".`);
   }
 
-  // 3. Create Web App & fetch SDK config
-  console.log('\n3) Creating Firebase Web App & fetching config...');
-  const appRes = fb(
-    ['apps:create', 'WEB', 'Crazy-44-Web', '--project', projectId, '--json'],
-    { capture: true, allowFail: true },
-  );
-
+  // 3. Create or reuse Web App & fetch SDK config
+  console.log('\n3) Ensuring Firebase Web App exists & fetching config...');
   let appId = '';
-  if (appRes.status === 0) {
+  const listAppsRes = fb(['apps:list', 'WEB', '--project', projectId, '--json'], {
+    capture: true,
+    allowFail: true,
+  });
+  if (listAppsRes.status === 0) {
     try {
-      const parsed = JSON.parse(appRes.stdout);
-      appId = parsed?.result?.appId || '';
+      const parsed = JSON.parse(listAppsRes.stdout);
+      appId = parsed?.result?.[0]?.appId || '';
     } catch {
-      // fallback to apps:list
+      // ignore
     }
   }
 
   if (!appId) {
-    await sleep(1500);
-    const listRes = fb(['apps:list', 'WEB', '--project', projectId, '--json'], {
+    const appRes = fb(
+      ['apps:create', 'WEB', 'Crazy-44-Web', '--project', projectId, '--json'],
+      { capture: true, allowFail: true },
+    );
+    if (appRes.status === 0) {
+      try {
+        const parsed = JSON.parse(appRes.stdout);
+        appId = parsed?.result?.appId || '';
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!appId) {
+    await sleep(2000);
+    const retryList = fb(['apps:list', 'WEB', '--project', projectId, '--json'], {
       capture: true,
     });
-    const parsed = JSON.parse(listRes.stdout);
+    const parsed = JSON.parse(retryList.stdout);
     appId = parsed?.result?.[0]?.appId || '';
   }
 
@@ -181,46 +196,7 @@ async function main() {
     appId: sdk.appId,
   };
 
-  // 4. Create Firestore database & deploy Firestore rules
-  console.log('\n4) Provisioning Cloud Firestore (eur3) & deploying rules...');
-  fb(
-    [
-      'firestore:databases:create',
-      '(default)',
-      '--location',
-      'eur3',
-      '--project',
-      projectId,
-    ],
-    { allowFail: true },
-  );
-  fb(['deploy', '--only', 'firestore:rules', '--project', projectId]);
-
-  // 5. Deploy Storage rules (prompt for Console one-click if Blaze/Storage not initialized)
-  console.log('\n5) Deploying Firebase Storage rules...');
-  const storageTry = fb(
-    ['deploy', '--only', 'storage', '--project', projectId],
-    { allowFail: true },
-  );
-
-  if (storageTry.status !== 0) {
-    console.log('\n------------------------------------------------------------');
-    console.log('Firebase Storage needs to be enabled once in the Console:');
-    console.log(
-      `  https://console.firebase.google.com/project/${projectId}/storage`,
-    );
-    console.log(
-      'Click "Get started" (enable Blaze if prompted — 5 GB/day is free),',
-    );
-    console.log('then come back here and press Enter to deploy storage rules.');
-    console.log('------------------------------------------------------------');
-    await rl.question('Press Enter once Storage is enabled (or Ctrl+C to skip): ');
-    fb(['deploy', '--only', 'storage', '--project', projectId], {
-      allowFail: true,
-    });
-  }
-
-  // 6. Write src/firebaseConfig.ts
+  // Write src/firebaseConfig.ts right away so config is never lost
   const configPath = path.join(repoRoot, 'src', 'firebaseConfig.ts');
   const fileContent = `import type { FirebaseConfig } from './types/game';
 
@@ -231,12 +207,81 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseConfig | null = ${JSON.stringify(
   )};
 `;
   fs.writeFileSync(configPath, fileContent, 'utf8');
-  console.log(`\n6) Updated ${path.relative(repoRoot, configPath)}!`);
+  console.log(`   Saved config to ${path.relative(repoRoot, configPath)}!`);
 
-  // 7. Commit and push to GitHub
+  // 4. Provision Cloud Firestore & deploy rules (with Console fallback)
+  console.log('\n4) Setting up Cloud Firestore & rules...');
+  const dbCreate = fb(
+    [
+      'firestore:databases:create',
+      '(default)',
+      '--location',
+      'eur3',
+      '--project',
+      projectId,
+    ],
+    { allowFail: true },
+  );
+
+  let fsRulesRes = fb(
+    ['deploy', '--only', 'firestore:rules', '--project', projectId],
+    { allowFail: true },
+  );
+
+  if (dbCreate.status !== 0 || fsRulesRes.status !== 0) {
+    console.log('\n------------------------------------------------------------');
+    console.log('Google requires enabling Firestore once in the Firebase Console:');
+    console.log(
+      `  https://console.firebase.google.com/project/${projectId}/firestore`,
+    );
+    console.log('1. Click "Create database" -> Standard edition -> eur3 (europe-west).');
+    console.log('2. Choose "Start in test mode" (or Production mode) and click Create.');
+    console.log('3. Come back here and press Enter to deploy firestore.rules.');
+    console.log('------------------------------------------------------------');
+    await rl.question('Press Enter once Firestore is created (or type "skip"): ');
+    fsRulesRes = fb(
+      ['deploy', '--only', 'firestore:rules', '--project', projectId],
+      { allowFail: true },
+    );
+    if (fsRulesRes.status !== 0) {
+      console.log(
+        '   Note: If rules deploy failed, paste firestore.rules in the Firestore -> Rules tab in Console.',
+      );
+    }
+  }
+
+  // 5. Deploy Storage rules (with Console fallback)
+  console.log('\n5) Setting up Firebase Storage & rules...');
+  let storageTry = fb(['deploy', '--only', 'storage', '--project', projectId], {
+    allowFail: true,
+  });
+
+  if (storageTry.status !== 0) {
+    console.log('\n------------------------------------------------------------');
+    console.log('Firebase Storage needs to be enabled once in the Console:');
+    console.log(
+      `  https://console.firebase.google.com/project/${projectId}/storage`,
+    );
+    console.log(
+      'Click "Get started" (enable Blaze if prompted — 5 GB/day is free),',
+    );
+    console.log('then come back here and press Enter to deploy storage.rules.');
+    console.log('------------------------------------------------------------');
+    await rl.question('Press Enter once Storage is enabled (or press Enter to skip): ');
+    storageTry = fb(['deploy', '--only', 'storage', '--project', projectId], {
+      allowFail: true,
+    });
+    if (storageTry.status !== 0) {
+      console.log(
+        '   Note: If storage rules deploy failed, paste storage.rules in the Storage -> Rules tab in Console.',
+      );
+    }
+  }
+
+  // 6. Commit and push to GitHub
   const pushAnswer = (
     await rl.question(
-      '\n7) Commit & push src/firebaseConfig.ts to GitHub so GitHub Pages redeploys automatically? (Y/n): ',
+      '\n6) Commit & push src/firebaseConfig.ts to GitHub so GitHub Pages redeploys automatically? (Y/n): ',
     )
   )
     .trim()
@@ -244,13 +289,20 @@ export const DEFAULT_FIREBASE_CONFIG: FirebaseConfig | null = ${JSON.stringify(
 
   if (pushAnswer === '' || pushAnswer === 'y' || pushAnswer === 'yes') {
     run('git', ['add', 'src/firebaseConfig.ts']);
-    run('git', [
-      'commit',
-      '-m',
-      `Connect Firebase project ${firebaseConfig.projectId}`,
-    ]);
-    run('git', ['push', 'origin', 'main']);
-    console.log('\nPushed to GitHub! GitHub Pages will redeploy in ~45 seconds.');
+    const diffCheck = run('git', ['diff', '--cached', '--quiet'], {
+      allowFail: true,
+    });
+    if (diffCheck.status !== 0) {
+      run('git', [
+        'commit',
+        '-m',
+        `Connect Firebase project ${firebaseConfig.projectId}`,
+      ]);
+      run('git', ['push', 'origin', 'main']);
+      console.log('\nPushed to GitHub! GitHub Pages will redeploy in ~45 seconds.');
+    } else {
+      console.log('\nsrc/firebaseConfig.ts is already up to date.');
+    }
   }
 
   const adminToken = randomToken(16);
