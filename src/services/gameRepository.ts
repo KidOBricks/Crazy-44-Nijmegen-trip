@@ -13,9 +13,10 @@ import {
 } from 'firebase/firestore';
 import {
   buildSeedTasks,
+  CURRENT_TASKS_SEED_VERSION,
   DEFAULT_RULES_TEXT,
   SEED_CATEGORIES,
-} from '../data/seedCrazy35';
+} from '../data/seedCrazy44';
 import type {
   Category,
   GameState,
@@ -91,6 +92,7 @@ export function createDefaultGameState(adminToken?: string): GameState {
     cloudinaryCloudName: '',
     cloudinaryUploadPreset: '',
     rulesText: DEFAULT_RULES_TEXT,
+    tasksSeedVersion: CURRENT_TASKS_SEED_VERSION,
     updatedAt: Date.now(),
   };
 }
@@ -106,6 +108,49 @@ export function createFirebaseRepository(): GameRepository {
   }
   const { db } = handles;
   const gameDocRef = doc(db, 'games', 'default');
+  let migrationPromise: Promise<void> | null = null;
+
+  const replaceTasksAndCategoriesWithSeed = async () => {
+    if (migrationPromise) {
+      return migrationPromise;
+    }
+    migrationPromise = (async () => {
+      try {
+        const [catsSnap, tasksSnap] = await Promise.all([
+          getDocs(collection(db, 'categories')),
+          getDocs(collection(db, 'tasks')),
+        ]);
+
+        const ops: Array<(batch: ReturnType<typeof writeBatch>) => void> = [];
+        catsSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
+        tasksSnap.forEach((d) => ops.push((batch) => batch.delete(d.ref)));
+
+        for (const cat of SEED_CATEGORIES) {
+          ops.push((batch) => batch.set(doc(db, 'categories', cat.id), cat));
+        }
+        for (const task of buildSeedTasks()) {
+          ops.push((batch) => batch.set(doc(db, 'tasks', task.id), task));
+        }
+        ops.push((batch) =>
+          batch.update(gameDocRef, {
+            tasksSeedVersion: CURRENT_TASKS_SEED_VERSION,
+            updatedAt: Date.now(),
+          }),
+        );
+
+        for (let i = 0; i < ops.length; i += 400) {
+          const batch = writeBatch(db);
+          for (const op of ops.slice(i, i + 400)) {
+            op(batch);
+          }
+          await batch.commit();
+        }
+      } finally {
+        migrationPromise = null;
+      }
+    })();
+    return migrationPromise;
+  };
 
   return {
     subscribe(onData, onError) {
@@ -126,7 +171,13 @@ export function createFirebaseRepository(): GameRepository {
         gameDocRef,
         (snap) => {
           if (snap.exists()) {
-            current = { ...current, game: snap.data() as GameState };
+            const gameData = snap.data() as GameState;
+            if ((gameData.tasksSeedVersion ?? 1) < CURRENT_TASKS_SEED_VERSION) {
+              replaceTasksAndCategoriesWithSeed().catch((err) => {
+                onError(err instanceof Error ? err : new Error(String(err)));
+              });
+            }
+            current = { ...current, game: gameData };
           }
           loadedGame = true;
           emit();
@@ -194,7 +245,15 @@ export function createFirebaseRepository(): GameRepository {
     async ensureInitialized(adminToken?: string) {
       const snap = await getDoc(gameDocRef);
       if (snap.exists()) {
-        return snap.data() as GameState;
+        const existing = snap.data() as GameState;
+        if ((existing.tasksSeedVersion ?? 1) < CURRENT_TASKS_SEED_VERSION) {
+          await replaceTasksAndCategoriesWithSeed();
+          return {
+            ...existing,
+            tasksSeedVersion: CURRENT_TASKS_SEED_VERSION,
+          };
+        }
+        return existing;
       }
       const initial = createDefaultGameState(adminToken);
       const batch = writeBatch(db);
@@ -210,14 +269,7 @@ export function createFirebaseRepository(): GameRepository {
     },
 
     async seedDefaultTasks() {
-      const batch = writeBatch(db);
-      for (const cat of SEED_CATEGORIES) {
-        batch.set(doc(db, 'categories', cat.id), cat, { merge: true });
-      }
-      for (const task of buildSeedTasks()) {
-        batch.set(doc(db, 'tasks', task.id), task, { merge: true });
-      }
-      await batch.commit();
+      await replaceTasksAndCategoriesWithSeed();
     },
 
     async updateGame(patch) {
@@ -387,7 +439,22 @@ function readDemoSnapshot(): GameSnapshot {
   try {
     const raw = localStorage.getItem(DEMO_STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw) as GameSnapshot;
+      const parsed = JSON.parse(raw) as GameSnapshot;
+      if ((parsed.game?.tasksSeedVersion ?? 1) < CURRENT_TASKS_SEED_VERSION) {
+        const migrated: GameSnapshot = {
+          ...parsed,
+          game: {
+            ...parsed.game,
+            tasksSeedVersion: CURRENT_TASKS_SEED_VERSION,
+            updatedAt: Date.now(),
+          },
+          categories: SEED_CATEGORIES,
+          tasks: buildSeedTasks(),
+        };
+        localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(migrated));
+        return migrated;
+      }
+      return parsed;
     }
   } catch {
     // ignore corrupt JSON
@@ -448,6 +515,11 @@ export function createDemoRepository(): GameRepository {
       const snap = readDemoSnapshot();
       writeAndBroadcast({
         ...snap,
+        game: {
+          ...snap.game,
+          tasksSeedVersion: CURRENT_TASKS_SEED_VERSION,
+          updatedAt: Date.now(),
+        },
         categories: SEED_CATEGORIES,
         tasks: buildSeedTasks(),
       });

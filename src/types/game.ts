@@ -23,6 +23,7 @@ export interface GameState {
   cloudinaryCloudName?: string;
   cloudinaryUploadPreset?: string;
   rulesText: string;
+  tasksSeedVersion?: number;
   updatedAt: number;
 }
 

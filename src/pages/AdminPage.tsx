@@ -528,7 +528,7 @@ export function AdminPage() {
                 onClick={() => repo.seedDefaultTasks()}
               >
                 <Sparkles size={14} />
-                Restore 35 Starter Tasks
+                Restore 44 Starter Tasks
               </button>
 
               <div className="row-wrap">

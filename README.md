@@ -15,7 +15,7 @@ https://kidobricks.github.io/Crazy-44-Nijmegen-trip/
 ## Features
 
 - **Admin Panel (`#/admin?token=...`)**:
-  - **Tasks & Categories**: Pre-seeded with 35 starter tasks across 4 categories. Add categories, add tasks (1–44), configure points (default `1`), upload reference images, and click any task to edit and push live instantly.
+  - **Tasks & Categories**: Pre-seeded with 44 tasks across 5 categories. Add categories, add tasks (1–44), configure points (default `1`), upload reference images, and click any task to edit and push live instantly.
   - **Live Grading & Phone Alerts**: Sticky top-of-screen alert banner + chime/vibration + browser notifications + optional `ntfy.sh` locked-screen phone push whenever a team uploads proof. Submissions are organized with **Graded / Marked at the top** and **Unmarked at the bottom**, supporting **Approve**, **+1 Bonus**, **Reject (Redo with feedback)**, manual point overrides, and team penalties (`-5`, etc.).
   - **Teams & Game Control**: Create numbered teams (`1`, `2`, `3`, `4`+) with custom names and colors (preset swatches + color wheel), generate custom shareable team links & QR codes, Start/End game with configurable timer, and inspect interactive **End Game** visualizations (podium, score bar chart, category breakdown, timeline, team media reels, and side-by-side task comparisons).
 - **Participant View (`#/team/:teamId?t=...`)**:

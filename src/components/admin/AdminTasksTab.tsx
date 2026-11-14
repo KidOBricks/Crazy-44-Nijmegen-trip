@@ -223,7 +223,7 @@ export function AdminTasksTab({
               margin: '8px 0 16px',
             }}
           >
-            Load your 35 Nijmegen tasks across 4 categories, or create your own
+            Load your 44 Nijmegen tasks across 5 categories, or create your own
             from scratch.
           </p>
           <button
@@ -232,7 +232,7 @@ export function AdminTasksTab({
             onClick={() => repo.seedDefaultTasks()}
           >
             <Sparkles size={16} />
-            Load Crazy 35 Starter Tasks
+            Load Crazy 44 Starter Tasks
           </button>
         </div>
       )}

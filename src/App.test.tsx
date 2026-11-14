@@ -22,11 +22,11 @@ describe('Crazy 44 App Routes', () => {
     ).toBeDefined();
   });
 
-  it('renders AdminPage in Local Demo mode with 35 seeded tasks', async () => {
+  it('renders AdminPage in Local Demo mode with 44 seeded tasks', async () => {
     window.location.hash = '#/admin?token=demo-admin';
     render(<App />);
     expect(await screen.findByText('Crazy 44 Admin')).toBeDefined();
-    expect(await screen.findByText('Tasks (35)')).toBeDefined();
+    expect(await screen.findByText('Tasks (44)')).toBeDefined();
     expect(await screen.findByText('Bow to the devil')).toBeDefined();
   });
 
