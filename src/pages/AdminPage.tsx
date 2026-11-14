@@ -18,6 +18,7 @@ import { AdminTeamsGameTab } from '../components/admin/AdminTeamsGameTab';
 import { CountdownTimer } from '../components/CountdownTimer';
 import { RulesModal } from '../components/RulesModal';
 import { useGameData } from '../hooks/useGameData';
+import { testCloudinaryConfig } from '../services/mediaUpload';
 import {
   playNotificationChime,
   requestBrowserNotifications,
@@ -47,6 +48,10 @@ export function AdminPage() {
   const [ntfyInput, setNtfyInput] = useState('');
   const [cloudNameInput, setCloudNameInput] = useState('');
   const [uploadPresetInput, setUploadPresetInput] = useState('');
+  const [cloudinaryTest, setCloudinaryTest] = useState<{
+    status: 'idle' | 'testing' | 'ok' | 'err';
+    message?: string;
+  }>({ status: 'idle' });
   const [rulesInput, setRulesInput] = useState('');
   const [copiedAdmin, setCopiedAdmin] = useState(false);
 
@@ -171,9 +176,27 @@ export function AdminPage() {
     e.preventDefault();
     await repo.updateGame({
       ntfyTopic: ntfyInput.trim(),
+      cloudinaryCloudName: cloudNameInput.trim(),
+      cloudinaryUploadPreset: uploadPresetInput.trim(),
       rulesText: rulesInput.trim(),
     });
     setSettingsOpen(false);
+  };
+
+  const handleTestCloudinary = async () => {
+    setCloudinaryTest({ status: 'testing' });
+    try {
+      await testCloudinaryConfig(cloudNameInput, uploadPresetInput);
+      setCloudinaryTest({
+        status: 'ok',
+        message: 'Connected! Unsigned uploads work (remember to click Save Settings).',
+      });
+    } catch (err) {
+      setCloudinaryTest({
+        status: 'err',
+        message: err instanceof Error ? err.message : 'Cloudinary test failed.',
+      });
+    }
   };
 
   return (
@@ -206,6 +229,9 @@ export function AdminPage() {
               className="btn btn-sm btn-secondary"
               onClick={() => {
                 setNtfyInput(game.ntfyTopic || '');
+                setCloudNameInput(game.cloudinaryCloudName || '');
+                setUploadPresetInput(game.cloudinaryUploadPreset || '');
+                setCloudinaryTest({ status: 'idle' });
                 setRulesInput(game.rulesText || '');
                 setSettingsOpen(true);
               }}
@@ -416,14 +442,22 @@ export function AdminPage() {
             </label>
 
             <div className="card-tinted stack-sm">
-              <strong style={{ fontSize: '13px' }}>
-                Free Video & HD Photo Uploads via Cloudinary (No Card Required)
-              </strong>
+              <div className="row-between">
+                <strong style={{ fontSize: '13px' }}>
+                  Free Video & HD Photo Uploads via Cloudinary
+                </strong>
+                {game.cloudinaryCloudName && game.cloudinaryUploadPreset ? (
+                  <span className="badge badge-approved">Saved & Active</span>
+                ) : (
+                  <span className="badge badge-pending">Not saved yet</span>
+                )}
+              </div>
               <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
                 Photos already work free out-of-the-box without Firebase Blaze.
-                To also enable <strong>video uploads</strong> free, create a
-                free Cloudinary account → Settings → Upload → Add Unsigned
-                Upload Preset, then enter:
+                To enable <strong>video uploads</strong>, enter your Cloudinary
+                <strong> Cloud Name</strong> (top-left of Cloudinary Dashboard)
+                and <strong>Unsigned Upload Preset</strong> (e.g.,{' '}
+                <code>crazy44</code>), then test &amp; Save Settings:
               </span>
               <div className="grid-2">
                 <label className="field">
@@ -433,7 +467,10 @@ export function AdminPage() {
                     className="input"
                     placeholder="e.g., dxyz123abc"
                     value={cloudNameInput}
-                    onChange={(e) => setCloudNameInput(e.target.value)}
+                    onChange={(e) => {
+                      setCloudNameInput(e.target.value);
+                      setCloudinaryTest({ status: 'idle' });
+                    }}
                   />
                 </label>
                 <label className="field">
@@ -441,11 +478,36 @@ export function AdminPage() {
                   <input
                     type="text"
                     className="input"
-                    placeholder="e.g., crazy44_unsigned"
+                    placeholder="e.g., crazy44"
                     value={uploadPresetInput}
-                    onChange={(e) => setUploadPresetInput(e.target.value)}
+                    onChange={(e) => {
+                      setUploadPresetInput(e.target.value);
+                      setCloudinaryTest({ status: 'idle' });
+                    }}
                   />
                 </label>
+              </div>
+              <div className="row-between">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline"
+                  disabled={cloudinaryTest.status === 'testing'}
+                  onClick={handleTestCloudinary}
+                >
+                  {cloudinaryTest.status === 'testing'
+                    ? 'Testing Cloudinary...'
+                    : 'Test Cloudinary Connection'}
+                </button>
+                {cloudinaryTest.status === 'ok' && (
+                  <span className="badge badge-approved" style={{ fontSize: '11px' }}>
+                    {cloudinaryTest.message}
+                  </span>
+                )}
+                {cloudinaryTest.status === 'err' && (
+                  <span className="badge badge-rejected" style={{ fontSize: '11px' }}>
+                    {cloudinaryTest.message}
+                  </span>
+                )}
               </div>
             </div>
 

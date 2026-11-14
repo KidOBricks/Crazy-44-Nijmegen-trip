@@ -91,10 +91,12 @@ async function uploadToCloudinary(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', endpoint);
+    xhr.timeout = 120_000;
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) {
-        onProgress?.(Math.round((e.loaded / e.total) * 100));
+        const pct = Math.min(95, Math.max(1, Math.round((e.loaded / e.total) * 95)));
+        onProgress?.(pct);
       }
     };
 
@@ -126,8 +128,40 @@ async function uploadToCloudinary(
     };
 
     xhr.onerror = () => reject(new Error('Network error uploading to Cloudinary.'));
+    xhr.ontimeout = () =>
+      reject(
+        new Error(
+          'Cloudinary upload timed out. Try a shorter clip or better signal.',
+        ),
+      );
     xhr.send(formData);
   });
+}
+
+// 1x1 transparent PNG used to verify Cloudinary Cloud Name + Unsigned Preset
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
+export async function testCloudinaryConfig(
+  cloudName: string,
+  uploadPreset: string,
+): Promise<void> {
+  if (!cloudName.trim() || !uploadPreset.trim()) {
+    throw new Error('Enter both your Cloud Name and Unsigned Upload Preset first.');
+  }
+  const binary = atob(TINY_PNG_BASE64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const probeBlob = new Blob([bytes], { type: 'image/png' });
+  await uploadToCloudinary(
+    probeBlob,
+    'crazy44-connection-test.png',
+    cloudName,
+    uploadPreset,
+    'image',
+  );
 }
 
 export interface UploadResult {
@@ -135,6 +169,9 @@ export interface UploadResult {
   mediaPath: string;
   mediaType: MediaType;
 }
+
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|3gp|avi|mkv)$/i;
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp|heic|heif)$/i;
 
 export async function uploadMediaFile(
   file: File,
@@ -144,8 +181,12 @@ export async function uploadMediaFile(
   previousPath?: string,
   cloudinary?: CloudinaryConfig,
 ): Promise<UploadResult> {
-  const isVideo = file.type.startsWith('video/');
-  const isImage = file.type.startsWith('image/');
+  const isVideo =
+    file.type.startsWith('video/') ||
+    (!file.type.startsWith('image/') && VIDEO_EXT_RE.test(file.name));
+  const isImage =
+    !isVideo &&
+    (file.type.startsWith('image/') || IMAGE_EXT_RE.test(file.name));
 
   if (!isVideo && !isImage) {
     throw new Error('Please choose a valid photo or video file.');
@@ -210,7 +251,7 @@ export async function uploadMediaFile(
     };
   }
 
-  // 4. Video without Cloudinary: attempt Firebase Storage if enabled, otherwise guide user to free Cloudinary
+  // 4. Video without Cloudinary: fail fast if Firebase Storage isn't enabled so uploads never hang at 0%
   try {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'mp4';
     const mediaPath = `${storageFolder}/${Date.now()}.${ext}`;
@@ -221,15 +262,35 @@ export async function uploadMediaFile(
         contentType: file.type || 'video/mp4',
       });
 
+      let madeProgress = false;
+      const stallTimer = window.setTimeout(() => {
+        if (!madeProgress) {
+          task.cancel();
+          reject(
+            new Error(
+              'Firebase Storage is unavailable on this free Spark project.',
+            ),
+          );
+        }
+      }, 4000);
+
       task.on(
         'state_changed',
         (snap) => {
+          if (snap.bytesTransferred > 0) {
+            madeProgress = true;
+            window.clearTimeout(stallTimer);
+          }
           if (snap.totalBytes > 0) {
             onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
           }
         },
-        (err) => reject(err),
+        (err) => {
+          window.clearTimeout(stallTimer);
+          reject(err);
+        },
         async () => {
+          window.clearTimeout(stallTimer);
           try {
             const url = await getDownloadURL(task.snapshot.ref);
             resolve(url);
@@ -255,7 +316,7 @@ export async function uploadMediaFile(
     return { mediaUrl, mediaPath, mediaType: 'video' };
   } catch {
     throw new Error(
-      'Video uploads need a free Cloudinary preset in Admin -> Settings (Cloud Name + Unsigned Preset) since Firebase Storage is not enabled on this free project.',
+      'Video uploads need your Cloudinary Cloud Name and Unsigned Preset ("crazy44") saved in Admin -> Settings.',
     );
   }
 }

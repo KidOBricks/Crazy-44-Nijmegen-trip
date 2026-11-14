@@ -219,7 +219,9 @@ export function TaskDetailModal({
         {uploadPct !== null && (
           <div className="stack-sm">
             <div className="row-between" style={{ fontSize: '13px' }}>
-              <strong>Uploading proof...</strong>
+              <strong>
+                {uploadPct >= 95 ? 'Finalizing upload...' : 'Uploading proof...'}
+              </strong>
               <span>{uploadPct}%</span>
             </div>
             <div className="progress-track">
@@ -246,6 +248,7 @@ export function TaskDetailModal({
               disabled={uploadPct !== null}
               onChange={(e) => {
                 const file = e.target.files?.[0];
+                e.target.value = '';
                 if (file) handleFileSelected(file);
               }}
             />
